@@ -1,0 +1,57 @@
+param (
+    [string]$RemoteComputerName,
+    [string]$TargetUserName,
+    [string]$DriveLetter,
+    [string]$NetworkPath
+)
+
+function Map-NetworkDrive {
+    param (
+        [string]$DriveLetter,
+        [string]$NetworkPath
+    )
+
+    # Check if the drive letter is already in use
+    $existingDrive = Get-WmiObject -Class Win32_MappedLogicalDisk | Where-Object { $_.DeviceID -eq "$DriveLetter:" }
+    if ($existingDrive) {
+        Write-Host "Drive letter $DriveLetter is already in use."
+    } else {
+        # Map the network drive
+        New-PSDrive -Name $DriveLetter -PSProvider FileSystem -Root $NetworkPath -Persist
+        Write-Host "Mapped $DriveLetter: to $NetworkPath"
+    }
+}
+
+# Script block to be executed on the remote computer
+$scriptBlock = {
+    param (
+        $DriveLetter,
+        $NetworkPath
+    )
+
+    # Import the function to map network drive
+    Set-Variable -Name "DriveLetter" -Value $DriveLetter
+    Set-Variable -Name "NetworkPath" -Value $NetworkPath
+
+    function Map-NetworkDrive {
+        param (
+            [string]$DriveLetter,
+            [string]$NetworkPath
+        )
+
+        # Check if the drive letter is already in use
+        $existingDrive = Get-WmiObject -Class Win32_MappedLogicalDisk | Where-Object { $_.DeviceID -eq "$DriveLetter:" }
+        if ($existingDrive) {
+            Write-Host "Drive letter $DriveLetter is already in use."
+        } else {
+            # Map the network drive
+            New-PSDrive -Name $DriveLetter -PSProvider FileSystem -Root $NetworkPath -Persist
+            Write-Host "Mapped $DriveLetter: to $NetworkPath"
+        }
+    }
+
+    Map-NetworkDrive -DriveLetter $DriveLetter -NetworkPath $NetworkPath
+}
+
+# Use PowerShell Remoting to execute the script block on the remote computer
+Invoke-Command -ComputerName $RemoteComputerName -ScriptBlock $scriptBlock -ArgumentList $DriveLetter, $NetworkPath -Credential (Get-Credential)
