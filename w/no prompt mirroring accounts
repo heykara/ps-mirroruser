@@ -1,0 +1,101 @@
+# Import the necessary module
+Import-Module ActiveDirectory
+
+# Load the .NET assembly for Windows Forms
+Add-Type -AssemblyName System.Windows.Forms
+
+# Create the form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Mirror AD Group Memberships"
+$form.Size = New-Object System.Drawing.Size(400, 200)
+$form.StartPosition = "CenterScreen"
+
+# Create a label for source user
+$labelSourceUser = New-Object System.Windows.Forms.Label
+$labelSourceUser.Text = "Source User (to mirror from):"
+$labelSourceUser.AutoSize = $true
+$labelSourceUser.Location = New-Object System.Drawing.Point(10, 20)
+$form.Controls.Add($labelSourceUser)
+
+# Create a text box for the source user
+$textBoxSourceUser = New-Object System.Windows.Forms.TextBox
+$textBoxSourceUser.Size = New-Object System.Drawing.Size(260, 20)
+$textBoxSourceUser.Location = New-Object System.Drawing.Point(10, 50)
+$form.Controls.Add($textBoxSourceUser)
+
+# Create a label for target user
+$labelTargetUser = New-Object System.Windows.Forms.Label
+$labelTargetUser.Text = "Target User (to mirror to):"
+$labelTargetUser.AutoSize = $true
+$labelTargetUser.Location = New-Object System.Drawing.Point(10, 80)
+$form.Controls.Add($labelTargetUser)
+
+# Create a text box for the target user
+$textBoxTargetUser = New-Object System.Windows.Forms.TextBox
+$textBoxTargetUser.Size = New-Object System.Drawing.Size(260, 20)
+$textBoxTargetUser.Location = New-Object System.Drawing.Point(10, 110)
+$form.Controls.Add($textBoxTargetUser)
+
+# Create a button for starting the process
+$buttonStart = New-Object System.Windows.Forms.Button
+$buttonStart.Text = "Mirror Memberships"
+$buttonStart.Location = New-Object System.Drawing.Point(10, 140)
+$buttonStart.Add_Click({
+    $sourceUser = $textBoxSourceUser.Text
+    $targetUser = $textBoxTargetUser.Text
+    
+    if ([string]::IsNullOrEmpty($sourceUser) -or [string]::IsNullOrEmpty($targetUser)) {
+        [System.Windows.Forms.MessageBox]::Show("Please specify both source and target users.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        return
+    }
+
+    $results = @()
+
+    try {
+        # Check if the source user exists
+        $sourceUserObject = Get-ADUser -Identity $sourceUser -ErrorAction SilentlyContinue
+        if ($sourceUserObject -eq $null) {
+            $results += [PSCustomObject]@{Status="Error"; Message="Source user not found."}
+            return
+        }
+
+        # Check if the target user exists
+        $targetUserObject = Get-ADUser -Identity $targetUser -ErrorAction SilentlyContinue
+        if ($targetUserObject -eq $null) {
+            $results += [PSCustomObject]@{Status="Error"; Message="Target user not found."}
+            return
+        }
+
+        # Get the groups of the source user
+        $sourceUserGroups = Get-ADUser -Identity $sourceUser -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+
+        # Iterate through each group and add the target user if not already a member
+        foreach ($group in $sourceUserGroups) {
+            $groupObject = Get-ADGroup -Identity $group
+            $isMember = Get-ADGroupMember -Identity $group -Recursive | Where-Object { $_.DistinguishedName -eq $targetUserObject.DistinguishedName }
+            if ($isMember -eq $null) {
+                try {
+                    Add-ADGroupMember -Identity $group -Members $targetUser
+                    $results += [PSCustomObject]@{Status="Success"; Message="Added $targetUser to group $($groupObject.Name)"}
+                } catch {
+                    $results += [PSCustomObject]@{Status="Error"; Message="Failed to add $targetUser to group $($groupObject.Name): $_"}
+                }
+            } else {
+                $results += [PSCustomObject]@{Status="Info"; Message="$targetUser is already a member of group $($groupObject.Name)"}
+            }
+        }
+
+        $results += [PSCustomObject]@{Status="Success"; Message="Successfully mirrored group memberships from $sourceUser to $targetUser"}
+    } catch {
+        $results += [PSCustomObject]@{Status="Error"; Message="An error occurred: $_"}
+    }
+
+    # Export results to CSV file
+    $results | Export-Csv -Path "C:\path\to\output\results.csv" -NoTypeInformation
+
+    [System.Windows.Forms.MessageBox]::Show("Operation completed. Results have been exported to results.csv.", "Information", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+})
+$form.Controls.Add($buttonStart)
+
+# Run the form
+[void]$form.ShowDialog()
