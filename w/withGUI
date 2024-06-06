@@ -1,0 +1,93 @@
+# Import the necessary module
+Import-Module ActiveDirectory
+
+# Load the .NET assembly for Windows Forms
+Add-Type -AssemblyName System.Windows.Forms
+
+# Create the form
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "Mirror AD Group Memberships"
+$form.Size = New-Object System.Drawing.Size(400, 200)
+$form.StartPosition = "CenterScreen"
+
+# Create a label for source user
+$labelSourceUser = New-Object System.Windows.Forms.Label
+$labelSourceUser.Text = "Source User (to mirror from):"
+$labelSourceUser.AutoSize = $true
+$labelSourceUser.Location = New-Object System.Drawing.Point(10, 20)
+$form.Controls.Add($labelSourceUser)
+
+# Create a text box for the source user
+$textBoxSourceUser = New-Object System.Windows.Forms.TextBox
+$textBoxSourceUser.Size = New-Object System.Drawing.Size(260, 20)
+$textBoxSourceUser.Location = New-Object System.Drawing.Point(10, 50)
+$form.Controls.Add($textBoxSourceUser)
+
+# Create a label for target user
+$labelTargetUser = New-Object System.Windows.Forms.Label
+$labelTargetUser.Text = "Target User (to mirror to):"
+$labelTargetUser.AutoSize = $true
+$labelTargetUser.Location = New-Object System.Drawing.Point(10, 80)
+$form.Controls.Add($labelTargetUser)
+
+# Create a text box for the target user
+$textBoxTargetUser = New-Object System.Windows.Forms.TextBox
+$textBoxTargetUser.Size = New-Object System.Drawing.Size(260, 20)
+$textBoxTargetUser.Location = New-Object System.Drawing.Point(10, 110)
+$form.Controls.Add($textBoxTargetUser)
+
+# Create a button for starting the process
+$buttonStart = New-Object System.Windows.Forms.Button
+$buttonStart.Text = "Mirror Memberships"
+$buttonStart.Location = New-Object System.Drawing.Point(10, 140)
+$buttonStart.Add_Click({
+    $sourceUser = $textBoxSourceUser.Text
+    $targetUser = $textBoxTargetUser.Text
+    
+    if ([string]::IsNullOrEmpty($sourceUser) -or [string]::IsNullOrEmpty($targetUser)) {
+        [System.Windows.Forms.MessageBox]::Show("Please specify both source and target users.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        return
+    }
+
+    try {
+        # Check if the source user exists
+        $sourceUserObject = Get-ADUser -Identity $sourceUser -ErrorAction SilentlyContinue
+        if ($sourceUserObject -eq $null) {
+            [System.Windows.Forms.MessageBox]::Show("Source user not found.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            return
+        }
+
+        # Check if the target user exists
+        $targetUserObject = Get-ADUser -Identity $targetUser -ErrorAction SilentlyContinue
+        if ($targetUserObject -eq $null) {
+            [System.Windows.Forms.MessageBox]::Show("Target user not found.", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            return
+        }
+
+        # Get the groups of the source user
+        $sourceUserGroups = Get-ADUser -Identity $sourceUser -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+
+        # Add the target user to each group if not already a member
+        foreach ($group in $sourceUserGroups) {
+            $isMember = (Get-ADGroupMember -Identity $group -Recursive | Where-Object { $_.SamAccountName -eq $targetUser }).Count -gt 0
+            if ($isMember) {
+                Write-Host "$targetUser is already a member of $group"
+            } else {
+                try {
+                    Add-ADGroupMember -Identity $group -Members $targetUser
+                    [System.Windows.Forms.MessageBox]::Show("Successfully added $targetUser to group $group", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+                } catch {
+                    [System.Windows.Forms.MessageBox]::Show("Failed to add $targetUser to group $group: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+                }
+            }
+        }
+
+        [System.Windows.Forms.MessageBox]::Show("Successfully mirrored group memberships from $sourceUser to $targetUser", "Success", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show("An error occurred: $_", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+    }
+})
+$form.Controls.Add($buttonStart)
+
+# Run the form
+[void]$form.ShowDialog()
